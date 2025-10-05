@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Restaurant - Order System</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script src="api-intergration.js"></script>
+    <script src="app.js"></script>
+</head>
+<body>
+    <!-- Landing Page -->
+    <div id="landing" class="landing-container">
+        <div class="landing-card">
+            <h1 class="landing-title">Digital Restaurant</h1>
+            <p class="landing-subtitle">Modern ordering system for seamless dining experience</p>
+            <div class="role-buttons">
+                <button class="role-btn customer-btn" onclick="startCustomerFlow()">
+                    🧑‍🍳 Start Ordering
+                </button>
+                <button class="role-btn admin-btn" onclick="startAdminFlow()">
+                    ⚙️ Admin Portal
+                </button>
+            </div>
+        </div>
+        <div class="contact-icons">
+            <a href="https://facebook.com/" target="_blank" title="Facebook" class="contact-icon">
+                <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/facebook.svg" alt="Facebook" style="width:28px;height:28px;">
+            </a>
+            <a href="https://instagram.com/" target="_blank" title="Instagram" class="contact-icon">
+                <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/instagram.svg" alt="Instagram" style="width:28px;height:28px;">
+            </a>
+            <a href="https://line.me/" target="_blank" title="Line" class="contact-icon">
+                <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/line.svg" alt="Line" style="width:28px;height:28px;">
+            </a>
+        </div>
+    </div>
+
+    <!-- Customer App -->
+    <div id="customerApp" class="app-container">
+        <div class="header">
+            <div class="header-content">
+                <button class="back-btn" onclick="goBack()">← Back</button>
+                <h1 class="header-title">Digital Menu</h1>
+                <div class="language-toggle">
+                    <button class="lang-btn active" data-lang="en" onclick="setLanguage('en')">EN</button>
+                    <button class="lang-btn" data-lang="th" onclick="setLanguage('th')">TH</button>
+                </div>
+            </div>
+        </div>
+        <div class="content">
+            <!-- Step 1: QR Scanner -->
+            <div id="qrStep" class="step-container">
+                <h2 class="step-title">
+                    <div class="step-number">1</div>
+                    <span data-en="Scan Table QR Code" data-th="สแกน QR โต๊ะ">Scan Table QR Code</span>
+                </h2>
+                <div class="qr-scanner">
+                    <div class="qr-icon">📱</div>
+                    <p data-en="Point your camera at the QR code on your table" data-th="เล็งกล้องไปที่ QR code บนโต๊ะ">Point your camera at the QR code on your table</p>
+                    <br>
+                    <button class="btn-primary" onclick="simulateQRScan()">Simulate QR Scan</button>
+                    <button class="btn-primary" onclick="goToGroupSetup()" style="margin-left: 10px;">Offline Mode</button>
+                </div>
+            </div>
+
+    <script src="app.js"></script>
+</body>
+            <div id="groupStep" class="step-container hidden">
+                <h2 class="step-title">
+                    <div class="step-number">2</div>
+                    <span data-en="Group Setup" data-th="ตั้งค่ากลุ่ม">Group Setup</span>
+                </h2>
+                <div class="group-setup">
+                    <h3 data-en="Number of People" data-th="จำนวนคน">Number of People</h3>
+                    <div class="people-counter">
+                        <button class="counter-btn" onclick="changePeopleCount(-1)">-</button>
+                        <span class="people-count" id="peopleCount">2</span>
+                        <button class="counter-btn" onclick="changePeopleCount(1)">+</button>
+                    </div>
+                    <button class="btn-primary" onclick="generateAvatars()">Create Avatars</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Avatar Setup -->
+            <div id="avatarStep" class="step-container hidden">
+                <h2 class="step-title">
+                    <div class="step-number">3</div>
+                    <span data-en="Create Your Avatars" data-th="สร้างตัวละครของคุณ">Create Your Avatars</span>
+                </h2>
+                <div id="avatarsGrid" class="avatars-grid"></div>
+                <button class="btn-primary" onclick="goToMenu()" style="margin-top: 20px;">Start Ordering</button>
+            </div>
+
+            <!-- Step 4: Menu -->
+            <div id="menuStep" class="step-container hidden">
+                <h2 class="step-title">
+                    <div class="step-number">4</div>
+                    <span data-en="Browse Menu" data-th="เรียกดูเมนู">Browse Menu</span>
+                </h2>
+                <div class="menu-header">
+                    <div class="search-box">
+                        <input type="text" class="search-input" id="menuSearch" placeholder="Search menu...">
+                        <span class="search-icon">🔍</span>
+                    </div>
+                    <div class="category-filters" id="categoryFilters">
+                        <button class="filter-btn active" data-category="all">All</button>
+                        <button class="filter-btn" data-category="appetizers">Appetizers</button>
+                        <button class="filter-btn" data-category="mains">Main Course</button>
+                        <button class="filter-btn" data-category="desserts">Desserts</button>
+                        <button class="filter-btn" data-category="drinks">Drinks</button>
+                    </div>
+                </div>
+                <div id="menuItems" class="menu-items"></div>
+            </div>
+
+            <!-- Step 5: Checkout -->
+            <div id="checkoutStep" class="step-container hidden">
+                <h2 class="step-title">
+                    <div class="step-number">5</div>
+                    <span data-en="Checkout" data-th="ชำระเงิน">Checkout</span>
+                </h2>
+                <div id="checkoutContent"></div>
+            </div>
+
+            <!-- Step 6: Order Status -->
+            <div id="statusStep" class="step-container hidden">
+                <h2 class="step-title">
+                    <div class="step-number">6</div>
+                    <span data-en="Order Status" data-th="สถานะการสั่ง">Order Status</span>
+                </h2>
+                <div class="status-tracker">
+                    <div class="status-step active">
+                        <div class="status-icon">📋</div>
+                        <span>Pending</span>
+                    </div>
+                    <div class="status-step">
+                        <div class="status-icon">🍳</div>
+                        <span>Preparing</span>
+                    </div>
+                    <div class="status-step">
+                        <div class="status-icon">👨‍🍳</div>
+                        <span>Cooking</span>
+                    </div>
+                    <div class="status-step">
+                        <div class="status-icon">✅</div>
+                        <span>Ready</span>
+                    </div>
+                    <div class="status-step">
+                        <div class="status-icon">🍽️</div>
+                        <span>Served</span>
+                    </div>
+                </div>
+                <p style="text-align: center; margin-top: 20px; color: #718096;">
+                    Queue Number: <strong id="queueNumber">A01</strong>
+                </p>
+            </div>
+        </div>
+
+        <!-- Shopping Cart -->
+        <div id="cart" class="cart hidden">
+            <div class="cart-header">
+                <h3>Your Order</h3>
+                <span id="cartCount">0</span>
+            </div>
+            <div class="cart-items" id="cartItems"></div>
+            <div class="cart-footer">
+                <div class="total-amount" id="totalAmount">฿0</div>
+                <button class="checkout-btn" onclick="goToCheckout()">Checkout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin App -->
+    <div id="adminApp" class="app-container admin-container hidden">
+        <div class="header admin-header">
+            <div class="header-content">
+                <h1 class="header-title">Admin Dashboard</h1>
+                <button class="btn-primary" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        <div class="admin-content">
+            <div style="background: yellow; color: red; font-weight: bold; padding: 20px; text-align: center;">DEBUG: Admin dashboard HTML is rendered</div>
+            <div class="dashboard-cards">
+                    <div class="dashboard-card">
+                        <span class="card-icon">📦</span>
+                        <span class="card-label">Today's Orders</span>
+                        <span class="card-value" id="todayOrders">0</span>
+                    </div>
+                    <div class="dashboard-card">
+                        <span class="card-icon">💰</span>
+                        <span class="card-label">Today's Revenue</span>
+                        <span class="card-value" id="todayRevenue">0</span>
+                    </div>
+                    <div class="dashboard-card">
+                        <span class="card-icon">🍽️</span>
+                        <span class="card-label">Occupied Tables</span>
+                        <span class="card-value" id="occupiedTables">0/0</span>
+                    </div>
+                    <div class="dashboard-card">
+                        <span class="card-icon">⏱️</span>
+                        <span class="card-label">Avg Wait Time</span>
+                        <span class="card-value" id="avgWaitTime">0</span>
+                    </div>
+            </div>
+            <div style="margin-top: 30px; text-align: center; color: #718096;">
+                <p>Here you will see statistics, orders, and management tools.</p>
+            </div>
+            <div class="admin-tabs">
+                <button class="tab-btn active" data-tab="queue" onclick="showAdminTab('queue')">Queue Management</button>
+                <button class="tab-btn" data-tab="menu" onclick="showAdminTab('menu')">Menu Management</button>
+                <button class="tab-btn" data-tab="tables" onclick="showAdminTab('tables')">Table Management</button>
+            </div>
+            <div id="queueTab" class="tab-content">
+                <h3>Current Queue</h3>
+                <div class="queue-list" id="queueList"></div>
+            </div>
+            <div id="menuTab" class="tab-content hidden">
+                <h3>Menu Items</h3>
+                <button class="btn-primary" onclick="showAddItemForm()">+ Add New Item</button>
+                <div id="menuManagementList" class="management-list"></div>
+            </div>
+            <div id="tablesTab" class="tab-content hidden">
+                <div class="tables-grid" id="tablesGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    
+</body>
+</html>
