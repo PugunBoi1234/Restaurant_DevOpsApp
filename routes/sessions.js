@@ -22,6 +22,7 @@ router.post('/', async (req, res) => {
     const sessionId = sessionResult.insertId;
     
     // Create avatars if provided
+    let createdAvatars = [];
     if (avatars && avatars.length > 0) {
       const avatarValues = avatars.map((avatar, index) => [
         sessionId,
@@ -31,22 +32,27 @@ router.post('/', async (req, res) => {
         avatar.isOrdering !== undefined ? avatar.isOrdering : true,
         avatar.paymentMethod || 'cash'
       ]);
-      
       await db.query(
         'INSERT INTO avatars (session_id, avatar_index, animal_emoji, nickname, is_ordering, payment_method) VALUES ?',
         [avatarValues]
       );
+      // Fetch avatars with their DB IDs
+      const [dbAvatars] = await db.query(
+        'SELECT * FROM avatars WHERE session_id = ? ORDER BY avatar_index',
+        [sessionId]
+      );
+      createdAvatars = dbAvatars;
     }
-    
+
     // Update table status
     await db.query('UPDATE tables SET status = ? WHERE id = ?', ['occupied', tableId]);
-    
+
     // Emit socket event
     io.to('admin-room').emit('session-created', { sessionId, tableId, peopleCount });
-    
+
     res.json({
       success: true,
-      data: { sessionId, tableId, peopleCount }
+      data: { sessionId, tableId, peopleCount, avatars: createdAvatars }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

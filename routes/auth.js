@@ -1,4 +1,5 @@
 // routes/auth.js
+// routes/auth.js
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -9,56 +10,50 @@ router.post('/login', async (req, res) => {
   try {
     const db = req.app.get('db');
     const { username, password } = req.body;
-    
+
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Username and password required' });
     }
-    
-    // Get user from database
-    const [users] = await db.query(
-      'SELECT * FROM admin_users WHERE username = ?',
-      [username]
-    );
-    
+
+    // 🔹 Get user from database
+    const [users] = await db.query('SELECT * FROM admin_users WHERE username = ?', [username]);
     if (users.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
-    
+
     const user = users[0];
-    
-    // For demo purposes, also accept plain password 'admin123'
+
+    // 🔹 Allow plain 'admin' / 'admin123' login for testing
     let isValid = false;
-    if (password === 'admin123' && username === 'admin') {
+    if (username === 'admin' && password === 'admin123') {
       isValid = true;
     } else {
-      // Compare password with hash
+      // Compare hashed password
       isValid = await bcrypt.compare(password, user.password_hash);
     }
-    
+
     if (!isValid) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
-    
-    // Generate JWT token
+
+    // 🔹 Generate JWT token
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'default_secret_key',
-      { expiresIn: '24h' }
+      process.env.JWT_SECRET || 'supersecretkey',
+      { expiresIn: '2h' }
     );
-    
+
+    // ✅ Send response
     res.json({
       success: true,
-      data: {
-        token,
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role
-        }
-      }
+      message: 'Login successful',
+      token,
+      admin: { username: user.username, role: user.role }
     });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 

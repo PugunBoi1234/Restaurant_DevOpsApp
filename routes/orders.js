@@ -12,7 +12,10 @@ function generateQueueNumber() {
 // Create new order
 router.post('/', async (req, res) => {
   const connection = await req.app.get('db').getConnection();
-  
+
+  // Log incoming request body for debugging
+  console.log('Incoming order create request:', JSON.stringify(req.body, null, 2));
+
   try {
     await connection.beginTransaction();
     
@@ -84,6 +87,7 @@ router.post('/', async (req, res) => {
     });
     
   } catch (error) {
+    console.error('Order creation error:', error);
     await connection.rollback();
     res.status(500).json({ success: false, message: error.message });
   } finally {
@@ -146,7 +150,9 @@ router.get('/queue/all', async (req, res) => {
     
     res.json({ success: true, data: orders });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Order creation error:', error);
+    await connection.rollback?.();
+    res.status(500).json({ success: false, message: error.message, stack: error.stack });
   }
 });
 

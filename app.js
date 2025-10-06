@@ -98,6 +98,60 @@ function getProteinIcon(protein) {
 }
 
 // ===== NAVIGATION FUNCTIONS =====
+// ===== ADMIN LOGIN MODAL =====
+function showAdminLogin() {
+    // Prevent multiple modals
+    if (document.getElementById('adminLoginModal')) return;
+
+    const modal = document.createElement('div');
+    modal.id = 'adminLoginModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 400px;">
+            <h3 style="margin-bottom: 20px;">Admin Login</h3>
+            <input id="adminUsername" type="text" placeholder="Username" style="width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #e2e8f0;">
+            <input id="adminPassword" type="password" placeholder="Password" style="width: 100%; padding: 10px; margin-bottom: 20px; border-radius: 6px; border: 1px solid #e2e8f0;">
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-primary" onclick="submitAdminLogin()" style="flex:1;">Login</button>
+                <button onclick="closeAdminLogin()" style="background: #e2e8f0; color: #4a5568; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer;">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeAdminLogin();
+    });
+}
+
+function closeAdminLogin() {
+    const modal = document.getElementById('adminLoginModal');
+    if (modal) document.body.removeChild(modal);
+}
+
+function submitAdminLogin() {
+    const username = document.getElementById('adminUsername').value.trim();
+    const password = document.getElementById('adminPassword').value.trim();
+    fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appState.adminLoggedIn = true;
+            appState.adminToken = data.token;
+            closeAdminLogin();
+            window.startAdminFlow();
+        } else {
+            alert(data.message || 'Invalid admin credentials!');
+        }
+    })
+    .catch(err => {
+        alert('Login failed. Please try again.');
+        console.error('Admin login error:', err);
+    });
+}
 window.startCustomerFlow = function() {
     document.getElementById('landing').style.display = 'none';
     document.getElementById('customerApp').style.display = 'block';
@@ -184,7 +238,9 @@ function resetApp() {
     appState.currentFilter = 'all';
     appState.searchTerm = '';
     appState.nextCartId = 1;
-    
+
+    // Always clear cart on reset
+    appState.cart = [];
     updateCartDisplay();
     
     document.querySelectorAll('.step-container').forEach(step => step.classList.add('hidden'));
@@ -225,35 +281,48 @@ function changePeopleCount(delta) {
 }
 
 async function generateAvatars() {
-    appState.avatars = [];
+    // Always clear cart when generating new avatars/session
+    appState.cart = [];
+    updateCartDisplay();
+
+    // Prepare avatars for session creation
+    const avatarsToCreate = [];
     for (let i = 0; i < appState.peopleCount; i++) {
-        appState.avatars.push({
-            id: i,
+        avatarsToCreate.push({
             animal: animalAvatars[i % animalAvatars.length],
             nickname: `Person ${i + 1}`,
             isOrdering: true,
             paymentMethod: 'cash'
         });
     }
-    
+
     // Create session in database
     if (appState.tableId) {
         try {
             const response = await window.restaurantAPI.sessions.create({
                 tableId: appState.tableId,
                 peopleCount: appState.peopleCount,
-                avatars: appState.avatars
+                avatars: avatarsToCreate
             });
-            
-            if (response.success) {
+
+            if (response.success && response.data.avatars) {
+                // Map DB avatars to appState.avatars
+                appState.avatars = response.data.avatars.map((dbAvatar, idx) => ({
+                    id: dbAvatar.id, // DB id
+                    animal: dbAvatar.animal_emoji,
+                    nickname: dbAvatar.nickname,
+                    isOrdering: !!dbAvatar.is_ordering,
+                    paymentMethod: dbAvatar.payment_method,
+                    avatarIndex: dbAvatar.avatar_index
+                }));
                 appState.sessionId = response.data.sessionId;
-                console.log('Session created:', appState.sessionId);
+                console.log('Session created:', appState.sessionId, appState.avatars);
             }
         } catch (error) {
             console.error('Session creation error:', error);
         }
     }
-    
+
     document.getElementById('groupStep').classList.add('hidden');
     document.getElementById('avatarStep').classList.remove('hidden');
     renderAvatars();
@@ -342,6 +411,15 @@ function updateLanguage() {
     }
 }
 // ===== MENU FUNCTIONS =====
+// Enable live search for menu
+document.addEventListener('DOMContentLoaded', function() {
+    const menuSearch = document.getElementById('menuSearch');
+    if (menuSearch) {
+        menuSearch.addEventListener('input', function(e) {
+            searchMenu(e.target.value);
+        });
+    }
+});
 function getFilteredMenu() {
     let items = appState.menuData;
     
@@ -560,22 +638,30 @@ function updateFinalPrice() {
 }
 
 function addCustomizedItemToCart() {
+    console.log('addCustomizedItemToCart called');
     if (selectedAvatar === null) {
+        console.warn('No avatar selected');
         alert('Please select who this item is for!');
         return;
     }
-    
+
     const notes = document.getElementById('specialNotes').value.trim();
     const finalPriceText = document.getElementById('finalPrice').textContent;
     const finalPrice = parseFloat(finalPriceText.replace('฿', ''));
-    
-    const avatar = appState.avatars[selectedAvatar];
+
+    // Find avatar by DB id (selectedAvatar is now a DB id)
+    const avatar = appState.avatars.find(a => a.id === selectedAvatar);
+    if (!avatar) {
+        console.warn('Avatar not found for selectedAvatar:', selectedAvatar, appState.avatars);
+        showErrorMessage('Avatar not found. Please try again.');
+        return;
+    }
     const name = appState.language === 'th' ? currentModalItem.name_th : currentModalItem.name_en;
-    
+
     const cartItem = {
         cartId: appState.nextCartId++,
         itemId: currentModalItem.id,
-        avatarId: selectedAvatar,
+        avatarId: avatar.id, // Use DB id
         name: name,
         icon: currentModalItem.icon,
         basePrice: parseFloat(currentModalItem.price),
@@ -588,13 +674,13 @@ function addCustomizedItemToCart() {
         },
         displayName: `${name}${selectedProtein !== 'Original' ? ` (${selectedProtein})` : ''}${selectedSpicy > 0 ? ` 🌶️x${selectedSpicy}` : ''}`
     };
-    
+
+    console.log('Adding cart item:', cartItem);
     appState.cart.push(cartItem);
     updateCartDisplay();
     closeModal();
     showSuccessMessage(`Added ${cartItem.displayName} to ${avatar.nickname}'s order!`);
 }
-
 // ===== CART FUNCTIONS =====
 function updateCartDisplay() {
     const cartItems = document.getElementById('cartItems');
@@ -622,17 +708,29 @@ function updateCartDisplay() {
             </div>
         `;
         
+        // Filter out cart items with invalid avatarId (ensure type match)
+        const validAvatarIds = appState.avatars.map(a => Number(a.id));
+        appState.cart = appState.cart.filter(item => validAvatarIds.includes(Number(item.avatarId)));
+
+        // Group items by avatarId (as string for object keys)
         const itemsByAvatar = {};
         appState.cart.forEach(item => {
-            if (!itemsByAvatar[item.avatarId]) itemsByAvatar[item.avatarId] = [];
-            itemsByAvatar[item.avatarId].push(item);
+            const aid = String(item.avatarId);
+            if (!itemsByAvatar[aid]) itemsByAvatar[aid] = [];
+            itemsByAvatar[aid].push(item);
         });
-        
+
         Object.keys(itemsByAvatar).forEach(avatarId => {
-            const avatar = appState.avatars[avatarId];
+            // Find the full avatar object using the DB id stored on the cart item (ensure number)
+            const avatar = appState.avatars.find(a => Number(a.id) === Number(avatarId));
+            if (!avatar) {
+                // Optionally log a warning for debugging
+                console.warn('No avatar found for avatarId:', avatarId, appState.avatars);
+                return; // Skip this group
+            }
             const items = itemsByAvatar[avatarId];
             const avatarTotal = items.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
-            
+
             const avatarSection = document.createElement('div');
             avatarSection.innerHTML = `
                 <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -643,7 +741,7 @@ function updateCartDisplay() {
                     ${items.map(item => `
                         <div style="padding: 10px 0; border-bottom: 1px solid #e2e8f0;">
                             <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 5px;">${item.displayName}</div>
-                            ${item.customizations.notes ? `<div style="font-size: 0.75rem; color: #718096;">"${item.customizations.notes}"</div>` : ''}
+                            ${item.customizations.notes ? `<div style=\"font-size: 0.75rem; color: #718096;\">\"${item.customizations.notes}\"</div>` : ''}
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
                                 <span style="font-size: 0.8rem;">฿${item.finalPrice} x ${item.quantity}</span>
                                 <div style="display: flex; gap: 8px;">
@@ -658,7 +756,7 @@ function updateCartDisplay() {
                 </div>
             `;
             cartItems.appendChild(avatarSection);
-            
+
             totalItems += items.reduce((sum, item) => sum + item.quantity, 0);
             grandTotal += avatarTotal;
         });
@@ -743,7 +841,11 @@ function renderCheckout() {
     `;
 
     Object.keys(itemsByAvatar).forEach(avatarId => {
-        const avatar = appState.avatars[avatarId];
+        const avatar = appState.avatars.find(a => a.id === Number(avatarId));
+        if (!avatar) {
+            console.warn('No avatar found for avatarId in checkout:', avatarId, appState.avatars);
+            return;
+        }
         const items = itemsByAvatar[avatarId];
         const avatarTotal = items.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
 
@@ -818,24 +920,42 @@ function setPayMode(mode) {
 }
 
 async function confirmOrder() {
+    console.log('confirmOrder called');
     if (!appState.sessionId) {
+        console.warn('No active session. appState:', appState);
         showErrorMessage('No active session. Please restart.');
         return;
     }
-    
+
     try {
         // Prepare order items for API
         const orderItems = appState.cart.map(item => ({
-            avatarId: appState.avatars[item.avatarId].id || item.avatarId,
+            avatarId: item.avatarId,
             itemId: item.itemId,
             quantity: item.quantity,
             basePrice: item.basePrice,
             finalPrice: item.finalPrice,
             customizations: item.customizations
         }));
-        
-        const paymentMode = document.querySelector('input[name="payMode"]:checked').value;
-        
+        console.log('Order items:', orderItems);
+
+        const paymentModeEl = document.querySelector('input[name="payMode"]:checked');
+        if (!paymentModeEl) {
+            console.warn('No payment mode selected');
+            showErrorMessage('Please select a payment mode.');
+            return;
+        }
+        const paymentMode = paymentModeEl.value;
+        console.log('Payment mode:', paymentMode);
+
+        console.log('Sending order to API:', {
+            sessionId: appState.sessionId,
+            tableId: appState.tableId,
+            items: orderItems,
+            totalAmount: appState.totalAmount,
+            paymentMode: paymentMode
+        });
+
         const response = await window.restaurantAPI.orders.create({
             sessionId: appState.sessionId,
             tableId: appState.tableId,
@@ -843,20 +963,24 @@ async function confirmOrder() {
             totalAmount: appState.totalAmount,
             paymentMode: paymentMode
         });
-        
+        console.log('Order API response:', response);
+
         if (response.success) {
             appState.orderId = response.data.orderId;
             appState.queueNumber = response.data.queueNumber;
-            
-            document.getElementById('queueNumberDisplay').textContent = appState.queueNumber;
-            
+
+             document.getElementById('queueNumber').textContent = appState.queueNumber;
+
             showSuccessMessage('Order confirmed! Your food will be ready soon.');
-            
+
             document.getElementById('checkoutStep').classList.add('hidden');
             document.getElementById('statusStep').classList.remove('hidden');
-            
+
             // Listen for status updates
             listenForOrderUpdates();
+        } else {
+            console.warn('Order API returned failure:', response);
+            showErrorMessage('Order failed: ' + (response.message || 'Unknown error'));
         }
     } catch (error) {
         console.error('Order confirmation error:', error);
@@ -876,46 +1000,52 @@ function listenForOrderUpdates() {
 }
 
 function updateOrderStatus(status) {
-    const statusMap = {
-        'pending': 0,
-        'preparing': 1,
-        'cooking': 2,
-        'ready': 3,
-        'served': 4
-    };
-    
-    const steps = document.querySelectorAll('.status-step');
-    const statusIndex = statusMap[status] || 0;
-    
-    steps.forEach((step, index) => {
-        step.classList.remove('active', 'completed');
-        if (index < statusIndex) {
-            step.classList.add('completed');
-        } else if (index === statusIndex) {
-            step.classList.add('active');
-        }
-    });
-}
+        const itemsByAvatar = {};
+        appState.cart.forEach(item => {
+            if (!itemsByAvatar[item.avatarId]) itemsByAvatar[item.avatarId] = [];
+            itemsByAvatar[item.avatarId].push(item);
+        });
 
-// ===== ADMIN FUNCTIONS =====
-function showAdminLogin() {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 400px;">
-            <h2 style="margin-bottom: 30px; text-align: center;">Admin Login</h2>
-            <div style="display: grid; gap: 15px;">
-                <input type="text" id="adminUsername" placeholder="Username" value="admin"
-                       style="width: 100%; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <input type="password" id="adminPassword" placeholder="Password" value="admin123"
-                       style="width: 100%; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <button onclick="tryAdminLogin()" class="btn-primary" style="width: 100%;">Login</button>
-                <button onclick="closeModal()" style="background: #e2e8f0; color: #4a5568; border: none; padding: 15px; border-radius: 8px; cursor: pointer;">Cancel</button>
-            </div>
-        </div>
-    `;
-    
+        Object.keys(itemsByAvatar).forEach(avatarId => {
+            // Find avatar by DB id (avatarId is a string, so convert to number)
+            const avatar = appState.avatars.find(a => a.id === Number(avatarId));
+            if (!avatar) {
+                // Optionally log a warning for debugging
+                console.warn('No avatar found for avatarId:', avatarId, appState.avatars);
+                return; // Skip this group
+            }
+            const items = itemsByAvatar[avatarId];
+            const avatarTotal = items.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
+
+            const avatarSection = document.createElement('div');
+            avatarSection.innerHTML = `
+                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <strong>${avatar.animal} ${avatar.nickname}</strong>
+                        <span style="color: #667eea; font-weight: bold;">฿${avatarTotal}</span>
+                    </div>
+                    ${items.map(item => `
+                        <div style="padding: 10px 0; border-bottom: 1px solid #e2e8f0;">
+                            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 5px;">${item.displayName}</div>
+                            ${item.customizations.notes ? `<div style="font-size: 0.75rem; color: #718096;">"${item.customizations.notes}"</div>` : ''}
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                                <span style="font-size: 0.8rem;">฿${item.finalPrice} x ${item.quantity}</span>
+                                <div style="display: flex; gap: 8px;">
+                                    <button onclick="updateItemQuantity(${item.cartId}, -1)" style="background: #e2e8f0; border: none; width: 24px; height: 24px; border-radius: 4px; cursor: pointer;">-</button>
+                                    <span style="font-weight: bold; min-width: 20px; text-align: center;">${item.quantity}</span>
+                                    <button onclick="updateItemQuantity(${item.cartId}, 1)" style="background: #e2e8f0; border: none; width: 24px; height: 24px; border-radius: 4px; cursor: pointer;">+</button>
+                                    <button onclick="removeFromCart(${item.cartId})" style="background: #fed7d7; color: #c53030; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer;">×</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            cartItems.appendChild(avatarSection);
+
+            totalItems += items.reduce((sum, item) => sum + item.quantity, 0);
+            grandTotal += avatarTotal;
+        });
     document.body.appendChild(modal);
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeModal();
@@ -1044,17 +1174,37 @@ async function loadTables() {
     try {
         const response = await window.restaurantAPI.tables.getAll();
         if (response.success) {
-            tablesGrid.innerHTML = response.data.map(table => `
-                <div style="background: white; padding: 20px; border-radius: 12px; text-align: center; color: black;">
-                    <h3 style="margin-bottom: 15px;">${table.table_number}</h3>
-                    <div style="padding: 15px; border-radius: 8px; font-weight: 600;
+            tablesGrid.innerHTML = response.data.map(table => {
+                let actionBtn = '';
+                if (table.status === 'free') {
+                    actionBtn = `<button id=\"set-occupied-btn-${table.id}\" class=\"btn-primary\" style=\"margin-top: 10px; padding: 8px 16px; background: #f6ad55; color: #1a202c;\">Set Occupied</button>`;
+                } else if (table.status === 'occupied') {
+                    actionBtn = `<button onclick=\"resetTable(${table.id})\" class=\"btn-primary\" style=\"margin-top: 10px; padding: 8px 16px;\">Reset</button>`;
+                }
+                return `
+                <div style=\"background: white; padding: 20px; border-radius: 12px; text-align: center; color: black;\">
+                    <h3 style=\"margin-bottom: 15px;\">${table.table_number}</h3>
+                    <div style=\"padding: 15px; border-radius: 8px; font-weight: 600;
                                 background: ${table.status === 'free' ? '#c6f6d5' : table.status === 'occupied' ? '#fed7d7' : '#feebc8'};
-                                color: ${table.status === 'free' ? '#22543d' : table.status === 'occupied' ? '#c53030' : '#c05621'};">
+                                color: ${table.status === 'free' ? '#22543d' : table.status === 'occupied' ? '#c53030' : '#c05621'};\">
                         ${table.status.toUpperCase()}
                     </div>
-                    ${table.status !== 'free' ? `<button onclick="resetTable(${table.id})" class="btn-primary" style="margin-top: 10px; padding: 8px 16px;">Reset</button>` : ''}
+                    ${actionBtn}
                 </div>
-            `).join('');
+                `;
+            }).join('');
+
+            // Attach event listeners for Set Occupied buttons
+            response.data.forEach(table => {
+                if (table.status === 'free') {
+                    const btn = document.getElementById(`set-occupied-btn-${table.id}`);
+                    if (btn) {
+                        btn.addEventListener('click', function() {
+                            setTableOccupied(table.id);
+                        });
+                    }
+                }
+            });
         }
     } catch (error) {
         console.error('Tables load error:', error);
@@ -1063,6 +1213,27 @@ async function loadTables() {
 }
 
 async function resetTable(tableId) {
+// Set table to occupied (admin action)
+async function setTableOccupied(tableId) {
+    try {
+        const response = await fetch(`/api/tables/${tableId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'occupied' })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Table set to occupied');
+            loadTables();
+        } else {
+            showErrorMessage(data.message || 'Failed to set table occupied');
+        }
+    } catch (error) {
+        console.error('Set table occupied error:', error);
+        showErrorMessage('Failed to set table occupied');
+    }
+}
+// (moved to end of file)
     try {
         const response = await window.restaurantAPI.tables.reset(tableId);
         if (response.success) {
@@ -1116,3 +1287,5 @@ async function toggleMenuItemAvailability(itemId, newStatus) {
         showErrorMessage('Failed to update menu item status');
     }
 }
+// Ensure global access for table status toggle
+window.setTableOccupied = setTableOccupied;
