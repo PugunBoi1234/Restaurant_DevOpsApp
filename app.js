@@ -38,6 +38,23 @@ function debounce(func, wait) {
         timeout = setTimeout(() => func(...args), wait);
     };
 }
+// Add this function to handle table status change
+function setTableOccupied(tableId) {
+    // Find the table element by ID or class
+    const tableRow = document.getElementById(`table-row-${tableId}`);
+    if (tableRow) {
+        // Find the status cell and update its text
+        const statusCell = tableRow.querySelector('.table-status');
+        if (statusCell) {
+            statusCell.textContent = 'Occupied';
+            statusCell.classList.remove('free');
+            statusCell.classList.add('occupied');
+        }
+    }
+    // Optionally, send update to server here
+    // Example:
+    // fetch(`/api/tables/${tableId}/occupy`, { method: 'POST' });
+}
 
 function getCurrentText(enText, thText) {
     return appState.language === 'th' ? thText : enText;
@@ -334,7 +351,8 @@ function renderAvatars() {
     
     appState.avatars.forEach((avatar, index) => {
         const card = document.createElement('div');
-        card.className = 'avatar-card';
+        modal.className = 'modal-overlay';
+        window.editQueue = editQueue;
         card.innerHTML = `
             <div class="avatar-icon" onclick="cycleAnimal(${index})">${avatar.animal}</div>
             <input type="text" class="avatar-input" placeholder="Nickname" 
@@ -344,10 +362,12 @@ function renderAvatars() {
                 <span>Will order food</span>
             </label>
         `;
+        window.submitEditQueue = submitEditQueue;
         grid.appendChild(card);
     });
 }
 
+        window.deleteQueue = deleteQueue;
 function cycleAnimal(index) {
     const currentIndex = animalAvatars.indexOf(appState.avatars[index].animal);
     const nextIndex = (currentIndex + 1) % animalAvatars.length;
@@ -591,6 +611,7 @@ function showItemModal(item) {
         if (e.target === modal) closeModal();
     });
 }
+window.editQueue = editQueue;
 
 function closeModal() {
     const modal = document.querySelector('.modal-overlay');
@@ -1122,37 +1143,223 @@ function showAdminTab(tabName) {
 async function loadQueue() {
     const queueList = document.getElementById('queueList');
     if (!queueList) return;
-    
+
     try {
         const response = await window.restaurantAPI.orders.getQueue();
         if (response.success && response.data.length > 0) {
-            queueList.innerHTML = response.data.map(order => `
-                <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; color: black;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+            queueList.innerHTML = response.data.map(tableObj => {
+                const table = tableObj;
+                const order = table.order;
+                let orderHtml = '';
+                if (order) {
+                    const editBtn = `<button onclick="editQueue('${order.id}', '${order.queue_number}', '${order.table_number}', '${order.status}', ${order.total_amount})" class="btn-secondary" style="margin-left: 8px; padding: 8px 16px; background: #4299e1; color: white;">Edit</button>`;
+                    const deleteBtn = `<button onclick="deleteQueue('${order.id}')" class="btn-danger" style="margin-left: 8px; padding: 8px 16px; background: #e53e3e; color: white;">Delete</button>`;
+                    orderHtml = `
+                        <strong style="font-size: 1.2rem; color: #667eea;">${order.queue_number}</strong>
+                        <span style="background: #edf2f7; padding: 4px 8px; border-radius: 6px; margin-left: 10px;">Table ${table.table_number}</span>
+                        <div style="color: #718096; margin-top: 5px;">${order.item_count} items - ฿${order.total_amount}</div>
                         <div>
-                            <strong style="font-size: 1.2rem; color: #667eea;">${order.queue_number}</strong>
-                            <span style="background: #edf2f7; padding: 4px 8px; border-radius: 6px; margin-left: 10px;">Table ${order.table_number}</span>
-                            <div style="color: #718096; margin-top: 5px;">${order.item_count} items - ฿${order.total_amount}</div>
-                        </div>
-                        <select onchange="updateOrderStatusAdmin('${order.id}', this.value)" 
+                            <select onchange="updateOrderStatusAdmin('${order.id}', this.value)" 
                                 style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 5px;">
-                            <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pending</option>
-                            <option value="preparing" ${order.status === 'preparing' ? 'selected' : ''}>Preparing</option>
-                            <option value="cooking" ${order.status === 'cooking' ? 'selected' : ''}>Cooking</option>
-                            <option value="ready" ${order.status === 'ready' ? 'selected' : ''}>Ready</option>
-                            <option value="served" ${order.status === 'served' ? 'selected' : ''}>Served</option>
-                        </select>
+                                <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pending</option>
+                                <option value="preparing" ${order.status === 'preparing' ? 'selected' : ''}>Preparing</option>
+                                <option value="cooking" ${order.status === 'cooking' ? 'selected' : ''}>Cooking</option>
+                                <option value="ready" ${order.status === 'ready' ? 'selected' : ''}>Ready</option>
+                                <option value="served" ${order.status === 'served' ? 'selected' : ''}>Served</option>
+                            </select>
+                            ${editBtn}
+                            ${deleteBtn}
+                        </div>
+                    `;
+                } else {
+                    orderHtml = `
+                        <span style="font-size: 1.2rem; color: #667eea;">No order</span>
+                        <span style="background: #edf2f7; padding: 4px 8px; border-radius: 6px; margin-left: 10px;">Table ${table.table_number}</span>
+                        <div style="color: #718096; margin-top: 5px;">Capacity: ${table.capacity}</div>
+                    `;
+                }
+                return `
+                    <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; color: black;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>${orderHtml}</div>
+                        </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         } else {
-            queueList.innerHTML = '<div style="text-align: center; padding: 40px; color: #718096;">No orders in queue</div>';
+            queueList.innerHTML = '<div style="text-align: center; padding: 40px; color: #718096;">No tables found</div>';
         }
     } catch (error) {
         console.error('Queue load error:', error);
         queueList.innerHTML = '<div style="text-align: center; padding: 40px; color: #e53e3e;">Failed to load queue</div>';
     }
 }
+
+// ---- Global functions ----
+
+// Close modal
+function closeModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+window.closeModal = closeModal;
+
+// Edit queue modal
+function editQueue(orderId, queueNumber, tableNumber, status, totalAmount) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center; z-index: 9999;
+    `;
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 400px; background:white; padding:20px; border-radius:12px;">
+            <h3>Edit Queue</h3>
+            <label>Queue Number:</label>
+            <input id="editQueueNumber" type="text" value="${queueNumber}" style="width:100%;padding:10px;margin-bottom:15px;border-radius:6px;border:1px solid #e2e8f0;">
+            <label>Table Number:</label>
+            <input id="editQueueTableNumber" type="text" value="${tableNumber}" style="width:100%;padding:10px;margin-bottom:15px;border-radius:6px;border:1px solid #e2e8f0;">
+            <label>Status:</label>
+            <select id="editQueueStatus" style="width:100%;padding:10px;margin-bottom:15px;border-radius:6px;border:1px solid #e2e8f0;">
+                <option value="pending"${status==='pending'?' selected':''}>Pending</option>
+                <option value="preparing"${status==='preparing'?' selected':''}>Preparing</option>
+                <option value="cooking"${status==='cooking'?' selected':''}>Cooking</option>
+                <option value="ready"${status==='ready'?' selected':''}>Ready</option>
+                <option value="served"${status==='served'?' selected':''}>Served</option>
+            </select>
+            <label>Total Amount:</label>
+            <input id="editQueueTotalAmount" type="number" value="${totalAmount}" style="width:100%;padding:10px;margin-bottom:20px;border-radius:6px;border:1px solid #e2e8f0;">
+            <div style="display:flex; gap:10px;">
+                <button class="btn-primary" onclick="submitEditQueue('${orderId}')" style="flex:1;">Save</button>
+                <button onclick="closeModal()" style="background:#e2e8f0;color:#4a5568;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+}
+window.editQueue = editQueue;
+
+// Submit queue edits
+async function submitEditQueue(orderId) {
+    const queueNumber = document.getElementById('editQueueNumber').value.trim();
+    const tableNumber = document.getElementById('editQueueTableNumber').value.trim();
+    const status = document.getElementById('editQueueStatus').value;
+    const totalAmount = Number(document.getElementById('editQueueTotalAmount').value);
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}`, {
+            method: 'PUT',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({queue_number: queueNumber, table_number: tableNumber, status, total_amount: totalAmount})
+        });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Queue updated');
+            closeModal();
+            loadQueue();
+        } else {
+            showErrorMessage(data.message || 'Failed to update queue');
+        }
+    } catch (error) {
+        console.error('Edit queue error:', error);
+        showErrorMessage('Failed to update queue');
+    }
+}
+window.submitEditQueue = submitEditQueue;
+
+// Delete queue
+async function deleteQueue(orderId) {
+    if (!confirm('Are you sure you want to delete this queue?')) return;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Queue deleted');
+            loadQueue();
+        } else {
+            showErrorMessage(data.message || 'Failed to delete queue');
+        }
+    } catch (error) {
+        console.error('Delete queue error:', error);
+        showErrorMessage('Failed to delete queue');
+    }
+}
+window.deleteQueue = deleteQueue;
+
+// Update order status inline
+async function updateOrderStatusAdmin(orderId, status) {
+    try {
+        const response = await window.restaurantAPI.orders.updateStatus(orderId, status);
+        if (response.success) {
+            showSuccessMessage(`Order status updated to ${status}`);
+            loadQueue();
+        }
+    } catch (error) {
+        console.error('Status update error:', error);
+        showErrorMessage('Failed to update order status');
+    }
+}
+window.updateOrderStatusAdmin = updateOrderStatusAdmin;
+
+
+async function submitEditQueue(orderId) {
+    const queueNumber = document.getElementById('editQueueNumber').value.trim();
+    const tableNumber = document.getElementById('editQueueTableNumber').value.trim();
+    const status = document.getElementById('editQueueStatus').value;
+    const totalAmount = Number(document.getElementById('editQueueTotalAmount').value);
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queue_number: queueNumber, table_number: tableNumber, status, total_amount: totalAmount })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Queue updated');
+            closeModal();
+            loadQueue();
+        } else {
+            showErrorMessage(data.message || 'Failed to update queue');
+        }
+    } catch (error) {
+        console.error('Edit queue error:', error);
+        showErrorMessage('Failed to update queue');
+    }
+}
+
+async function deleteQueue(orderId) {
+    if (!confirm('Are you sure you want to delete this queue?')) return;
+    try {
+        const response = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Queue deleted');
+            loadQueue();
+        } else {
+            showErrorMessage(data.message || 'Failed to delete queue');
+        }
+    } catch (error) {
+        console.error('Delete queue error:', error);
+        showErrorMessage('Failed to delete queue');
+    }
+}
+
+function closeModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+// Expose functions globally for onclick in HTML
+window.submitEditQueue = submitEditQueue;
+window.deleteQueue = deleteQueue;
+window.editQueue = editQueue;
+window.closeModal = closeModal;
+
 
 async function updateOrderStatusAdmin(orderId, status) {
     try {
@@ -1212,8 +1419,6 @@ async function loadTables() {
     }
 }
 
-async function resetTable(tableId) {
-// Set table to occupied (admin action)
 async function setTableOccupied(tableId) {
     try {
         const response = await fetch(`/api/tables/${tableId}/status`, {
@@ -1233,15 +1438,23 @@ async function setTableOccupied(tableId) {
         showErrorMessage('Failed to set table occupied');
     }
 }
-// (moved to end of file)
+
+async function resetTable(tableId) {
     try {
-        const response = await window.restaurantAPI.tables.reset(tableId);
-        if (response.success) {
-            showSuccessMessage('Table has been reset');
+        const response = await fetch(`/api/tables/${tableId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'free' })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showSuccessMessage('Table reset to free');
             loadTables();
+        } else {
+            showErrorMessage(data.message || 'Failed to reset table');
         }
     } catch (error) {
-        console.error('Table reset error:', error);
+        console.error('Reset table error:', error);
         showErrorMessage('Failed to reset table');
     }
 }
@@ -1289,3 +1502,6 @@ async function toggleMenuItemAvailability(itemId, newStatus) {
 }
 // Ensure global access for table status toggle
 window.setTableOccupied = setTableOccupied;
+window.editQueue = editQueue;
+window.submitEditQueue = submitEditQueue;
+window.deleteQueue = deleteQueue;

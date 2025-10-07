@@ -13,6 +13,16 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/tables/all - return all tables
+router.get('/all', async (req, res) => {
+    try {
+        const db = req.app.get('db');
+        const [tables] = await db.query('SELECT * FROM tables');
+        res.json({ success: true, data: tables });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 // Get table by ID
 router.get('/:id', async (req, res) => {
   try {

@@ -15,6 +15,9 @@ const io = socketIo(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
+const tableRoutes = require('./routes/tables');
+app.use('/tables', tableRoutes);
+
 
 // Middleware - MUST BE FIRST
 app.use(cors());

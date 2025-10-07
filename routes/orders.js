@@ -1,6 +1,37 @@
 // routes/orders.js
 const express = require('express');
 const router = express.Router();
+const db = require('mysql2/promise');
+
+// Update order details
+router.put('/:id', async (req, res) => {
+  try {
+    const db = req.app.get('db');
+    const { id } = req.params;
+    const { queue_number, table_number, status, total_amount } = req.body;
+
+    // Update order fields
+    await db.query(
+      `UPDATE orders 
+       SET queue_number = ?, status = ?, total_amount = ? 
+       WHERE id = ?`,
+      [queue_number, status, total_amount, id]
+    );
+
+    // Optionally update table number if changed
+    if (table_number) {
+      // Get table id for the new table_number
+      const [tables] = await db.query('SELECT id FROM tables WHERE table_number = ?', [table_number]);
+      if (tables.length > 0) {
+        await db.query('UPDATE orders SET table_id = ? WHERE id = ?', [tables[0].id, id]);
+      }
+    }
+
+    res.json({ success: true, message: 'Order updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // Generate queue number
 function generateQueueNumber() {
@@ -132,11 +163,27 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// GET all tables
+router.get('/all', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM tables ORDER BY id ASC');
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error fetching tables:', error);
+    res.json({ success: false, message: 'Failed to fetch tables' });
+  }
+});
+
+
 // Get all orders in queue
+// Get all tables with their current active order (if any)
 router.get('/queue/all', async (req, res) => {
   try {
     const db = req.app.get('db');
-    
+    // Get all tables
+    const [tables] = await db.query('SELECT * FROM tables ORDER BY table_number');
+
+    // Get today's active orders
     const [orders] = await db.query(
       `SELECT o.*, t.table_number, COUNT(oi.id) as item_count
        FROM orders o
@@ -147,12 +194,29 @@ router.get('/queue/all', async (req, res) => {
        GROUP BY o.id
        ORDER BY o.created_at ASC`
     );
-    
-    res.json({ success: true, data: orders });
+
+    // Map orders by table_id for quick lookup
+    const ordersByTable = {};
+    for (const order of orders) {
+      ordersByTable[order.table_id] = order;
+    }
+
+    // Build result: each table with its order (if any)
+    const result = tables.map(table => {
+      const order = ordersByTable[table.id] || null;
+      return {
+        table_id: table.id,
+        table_number: table.table_number,
+        status: table.status,
+        capacity: table.capacity,
+        order: order
+      };
+    });
+
+    res.json({ success: true, data: result });
   } catch (error) {
-    console.error('Order creation error:', error);
-    await connection.rollback?.();
-    res.status(500).json({ success: false, message: error.message, stack: error.stack });
+    console.error('Order queue load error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
